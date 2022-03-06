@@ -248,37 +248,6 @@ static void flatten(node_t *root) {
 }
 
 static void simplify_tree(node_t **simplified, node_t *root) {
-    /* TODO: Simplify the syntax tree structure
-    1. prune children: Delete nodes which can only ever have 1 child and no
-    meaningful data, and associate their child directly with their parent.
-
-    2. resolve constant expressions: Compute the value of subtrees representing
-    arithmetic with constants, and replace them with their value.
-
-    3. flatten: Delete internal nodes of list structures, leaving only a parent
-    node with a list type, and all list items as its children. Print list items
-    can be associated directly with the print statement.
-
-    VARIABLE_LIST                           VARIABLE_LIST
-      VARIABLE_LIST                           IDENTIFIER_DATA(i)
-        VARIABLE_LIST                         IDENTIFIER_DATA(j)
-          VARIABLE_LIST                       IDENTIFIER_DATA(k)
-            VARIABLE_LIST                     IDENTIFIER_DATA(l)
-              IDENTIFIER_DATA(i)  becomes     IDENTIFIER_DATA(m)
-            IDENTIFIER_DATA(j)
-          IDENTIFIER_DATA(k)
-        IDENTIFIER_DATA(l)
-      IDENTIFIER_DATA(m)
-
-    Tip: implement these three steps as separate functions to complete one task
-    at the time. e.g.:
-        prune_children(root);
-        redolve_constant_expressions(root);
-        flatten(root);
-        simplified = &root->children[0];
-        node_finalize(root);
-    */
-
     for (uintptr_t i = 0; i < root->n_children; i++) {
         if (root->children[i] != NULL) {
             simplify_tree(&root->children[i], root->children[i]);
