@@ -1,3 +1,7 @@
 *.o
 *.tab.h
+
+# PS3 generated files
 ps3/src/vslc
+ps3/src/parser.c
+ps3/src/scanner.c
