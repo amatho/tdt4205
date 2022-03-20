@@ -1,7 +1,9 @@
 *.o
 *.tab.h
+*.dSYM
 
-# PS3 generated files
-ps3/src/vslc
-ps3/src/parser.c
-ps3/src/scanner.c
+# Generated files
+ps*/src/vslc
+ps*/src/parser.c
+ps*/src/scanner.c
+ps*/vsl_programs/*/*.ast
