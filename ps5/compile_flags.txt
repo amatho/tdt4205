@@ -1,0 +1,6 @@
+-std=c99
+-g
+-Isrc
+-Iinclude
+-D_POSIX_C_SOURCE=200809L
+-DYYSTYPE="node_t *"
