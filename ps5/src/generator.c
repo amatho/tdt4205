@@ -15,13 +15,26 @@ static void generate_node(symbol_t *func, node_t *node);
 /**Initializes program (already implemented) */
 void generate_main(symbol_t *first);
 
+static void gen_expr(symbol_t *func, node_t *ndoe);
+
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
+#define INSTR0(M) "\t" M
+#define INSTR1(M, S) "\t" M " " S
+#define INSTR2(M, S, D) "\t" M " " S ", " D
 #define MOVQ(S, D) "\tmovq " S ", " D
 #define PUSHQ(S) "\tpushq " S
 #define POPQ(D) "\tpopq " D
 #define ADDQ(S, D) "\taddq " S ", " D
 #define SUBQ(S, D) "\tsubq " S ", " D
+#define MULQ(S) "\tmulq " S
+#define IDIVQ(S) "\tidivq " S
+#define NEGQ(D) "\tnegq " D
+#define NOTQ(D) "\tnotq " D
+#define ORQ(S, D) "\torq " S ", " D
+#define XORQ(S, D) "\txorq " S ", " D
+#define ANDQ(S, D) "\tandq " S ", " D
+#define CQO "\tcqo"
 #define CALL(OP) "\tcall " OP
 #define LEAVE "\tleave"
 #define RET "\tret"
@@ -33,19 +46,6 @@ void generate_main(symbol_t *first);
 static const char *record[6] = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
 
 void generate_program(void) {
-    /* TODO: Emit assembly instructions for functions, function calls,
-     * print statements and expressions.
-     * The provided function 'generate_main' creates a program entry point
-     * for the function symbol it is given as argument.
-     */
-
-    // TODO: Implement
-    // - Generate string table
-    // - Declare global variables
-    // - Generate code for all functions
-    // - Generate main (function already implemented) by assigning either the
-    //   function named main or the first function of the source file if no
-    //   main exists.
     generate_stringtable();
     generate_global_variables();
 
@@ -80,8 +80,8 @@ void generate_stringtable(void) {
      * error msg. from main
      */
     puts(".section .data");
-    puts(".intout:\t.asciz \"\%ld \"");
-    puts(".strout:\t.asciz \"\%s \"");
+    puts(".intout:\t.asciz \"%ld \"");
+    puts(".strout:\t.asciz \"%s \"");
     puts(".errout:\t.asciz \"Wrong number of arguments\"");
 
     for (size_t i = 0; i < stringc; i++) {
@@ -101,7 +101,7 @@ void generate_global_variables(void) {
     tlhash_values(global_names, (void **)globals);
     for (size_t i = 0; i < num_globals; i++) {
         if (globals[i]->type == SYM_GLOBAL_VAR) {
-            printf(".%s:\n", globals[i]->name);
+            printf("._%s: .skip 8\n", globals[i]->name);
         }
     }
 
@@ -167,7 +167,27 @@ static void gen_ident(symbol_t *func, node_t *node) {
     }
 }
 
-static void gen_func_call(node_t *node) {}
+static void gen_func_call(symbol_t *func, node_t *node) {
+    node_t *arg_list = node->children[1];
+
+    size_t num_args = arg_list != NULL ? arg_list->n_children : 0;
+    if (num_args != node->children[0]->entry->nparms) {
+        ICE("function has invalid number of arguments");
+    }
+
+    if (arg_list != NULL) {
+        for (size_t i = arg_list->n_children; i--;) {
+            gen_expr(func, arg_list->children[i]);
+            if (i > 5) {
+                puts(PUSHQ("%rax"));
+            } else {
+                printf(MOVQ("%%rax", "%s") "\n", record[i]);
+            }
+        }
+    }
+
+    printf(CALL("_%s") "\n", (char *)node->children[0]->data);
+}
 
 static void gen_expr(symbol_t *func, node_t *node) {
     if (node->type == IDENTIFIER_DATA) {
@@ -180,14 +200,14 @@ static void gen_expr(symbol_t *func, node_t *node) {
         switch (*(char *)node->data) {
         case '-':
             gen_expr(func, node->children[0]);
-            puts("\tnegq %rax");
+            puts(NEGQ("%rax"));
             break;
         case '~':
             gen_expr(func, node->children[0]);
-            puts("\tnotq %rax");
+            puts(NOTQ("%rax"));
             break;
         default:
-            ICE("invalid expression");
+            ICE("invalid unary operator in expression");
             break;
         }
     } else if (node->n_children == 2) {
@@ -200,15 +220,61 @@ static void gen_expr(symbol_t *func, node_t *node) {
                 puts(ADDQ("%rax", "(%rsp)"));
                 puts(POPQ("%rax"));
                 break;
-            // TODO: Implement
             case '-':
+                gen_expr(func, node->children[0]);
+                puts(PUSHQ("%rax"));
+                gen_expr(func, node->children[1]);
+                puts(SUBQ("%rax", "(%rsp)"));
+                puts(POPQ("%rax"));
                 break;
             case '*':
+                puts(PUSHQ("%rdx"));
+                gen_expr(func, node->children[1]);
+                puts(PUSHQ("%rax"));
+                gen_expr(func, node->children[0]);
+                puts(MULQ("(%rsp)"));
+                puts(POPQ("%rdx"));
+                puts(POPQ("%rdx"));
                 break;
             case '/':
+                puts(PUSHQ("%rdx"));
+                gen_expr(func, node->children[1]);
+                puts(PUSHQ("%rax"));
+                gen_expr(func, node->children[0]);
+                puts(CQO);
+                puts(IDIVQ("(%rsp)"));
+                puts(POPQ("%rdx"));
+                puts(POPQ("%rdx"));
+                break;
+            case '|':
+                gen_expr(func, node->children[0]);
+                puts(PUSHQ("%rax"));
+                gen_expr(func, node->children[1]);
+                puts(ORQ("%rax", "(%rsp)"));
+                puts(POPQ("%rax"));
+                break;
+            case '^':
+                gen_expr(func, node->children[0]);
+                puts(PUSHQ("%rax"));
+                gen_expr(func, node->children[1]);
+                puts(XORQ("%rax", "(%rsp)"));
+                puts(POPQ("%rax"));
+                break;
+            case '&':
+                gen_expr(func, node->children[0]);
+                puts(PUSHQ("%rax"));
+                gen_expr(func, node->children[1]);
+                puts(ANDQ("%rax", "(%rsp)"));
+                break;
+            default:
+                ICE("invalid binary operator in expression");
                 break;
             }
+        } else {
+            gen_func_call(func, node);
         }
+    } else {
+        ICE("invalid expression");
     }
 }
 
@@ -244,10 +310,10 @@ static void gen_assignment(symbol_t *func, node_t *node) {
         gen_expr(func, node->children[1]);
         printf("\txchgq %%rax, ");
         gen_ident(func, node->children[0]);
-        printf("\n\tcgo\n"
+        printf("\n" CQO "\n"
                "\tidivq ");
         gen_ident(func, node->children[0]);
-        printf("\n\txchq %%rax, ");
+        printf("\n\txchgq %%rax, ");
         gen_ident(func, node->children[0]);
         putchar('\n');
         break;
@@ -359,7 +425,7 @@ void generate_main(symbol_t *first) {
     printf("\tloop PARSE_ARGV\n");
 
     /* Now the arguments are in order on stack */
-    for (int arg = 0; arg < MIN(6, first->nparms); arg++)
+    for (size_t arg = 0; arg < MIN(6, first->nparms); arg++)
         printf("\tpopq\t%s\n", record[arg]);
 
     printf("SKIP_ARGS:\n");
