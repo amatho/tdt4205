@@ -6,4 +6,8 @@
 ps*/src/vslc
 ps*/src/parser.c
 ps*/src/scanner.c
-ps*/vsl_programs/*/*.ast
+*.ast
+*.sast
+*.sym
+*.S
+*.bin

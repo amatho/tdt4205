@@ -20,8 +20,9 @@ static void generate_function_call(node_t *call);
 static const char *record[6] = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
 
 static symbol_t *current_function = NULL;
-static size_t if_statement_counter = 0;
-static size_t while_statement_counter = 0;
+static size_t if_count = 0;
+static size_t while_count = 0;
+static size_t parent_while = 0;
 
 void generate_program(void) {
 
@@ -342,60 +343,103 @@ static void generate_print_statement(node_t *statement) {
 
 static void generate_if_statement(node_t *statement) {
     node_t *relation = statement->children[0];
+    size_t curr_count = if_count++;
 
     // Compute the if-condition
     generate_expression(relation->children[0]);
     puts("\tpushq %rax");
     generate_expression(relation->children[1]);
-    puts("\tpopq %rdi");
-    puts("\tcmpq %rax, %rdi");
+    puts("\tcmpq %rax, (%rsp)");
+    puts("\tpopq %rax");
 
-    // Jump to else-label if the condition false
+    // Jump to else-label if the condition is false
+    char *instr = NULL;
     switch (*(char *)relation->data) {
     case '<':
-        printf("\tjge _%s__IF%zu\n", current_function->name,
-               if_statement_counter);
+        instr = "jge";
         break;
     case '>':
-        printf("\tjle _%s__IF%zu\n", current_function->name,
-               if_statement_counter);
+        instr = "jle";
         break;
     case '=':
-        printf("\tjne _%s__IF%zu\n", current_function->name,
-               if_statement_counter);
+        instr = "jne";
         break;
     default:
         ICE("invalid if statement relation");
         break;
     }
 
-    // Generate the if-body
+    char *dest = statement->n_children == 2 ? "ENDIF" : "ELSE";
+    printf("\t%s .%s_%zu\n", instr, dest, curr_count);
+
+    // Generate the if-block
     generate_node(statement->children[1]);
 
     if (statement->n_children == 3) {
         // Jump to the end, past the else-body
-        printf("\tjmp _%s__IF%zu_END\n", current_function->name,
-               if_statement_counter);
-    }
+        printf("\tjmp .ENDIF_%zu\n", curr_count);
 
-    printf("_%s__IF%zu:\n", current_function->name, if_statement_counter);
+        // Label for else-block
+        printf(".ELSE_%zu:\n", curr_count);
 
-    if (statement->n_children == 3) {
-        // Generate the else-body
+        // Generate the else-block
         generate_node(statement->children[2]);
     }
 
-    printf("_%s__IF%zu_END:\n", current_function->name, if_statement_counter);
-
-    if_statement_counter++;
+    // Label for end of if-statement
+    printf(".ENDIF_%zu:\n", curr_count);
 }
 
 static void generate_while_statement(node_t *statement) {
-    // TODO: Handle while statement
-    // statement->nodetype = WHILE_STATEMENT
+    node_t *relation = statement->children[0];
+    size_t curr_count = while_count++;
+    size_t prev_parent_while = parent_while;
+    parent_while = curr_count;
+
+    // Label for the beginning of the while-statement
+    printf(".WHILE_%zu:\n", curr_count);
+
+    // Compute the while-condition
+    generate_expression(relation->children[0]);
+    puts("\tpushq %rax");
+    generate_expression(relation->children[1]);
+    puts("\tcmpq %rax, (%rsp)");
+    puts("\tpopq %rax");
+
+    // Jump to end-label if the condition false
+    char *instr = NULL;
+    switch (*(char *)relation->data) {
+    case '<':
+        instr = "jge";
+        break;
+    case '>':
+        instr = "jle";
+        break;
+    case '=':
+        instr = "jne";
+        break;
+    default:
+        ICE("invalid if statement relation");
+        break;
+    }
+
+    printf("\t%s .ENDWHILE_%zu\n", instr, curr_count);
+
+    // Generate the while-statement body
+    generate_node(statement->children[1]);
+
+    // Jump to the beginning to loop
+    printf("\tjmp .WHILE_%zu\n", curr_count);
+
+    // Label for the end of the while-statement
+    printf(".ENDWHILE_%zu:\n", curr_count);
+
+    parent_while = prev_parent_while;
 }
 
-static void generate_null_statement(node_t *statement) {}
+static void generate_null_statement(void) {
+    printf("\tjmp .WHILE_%zu\n", parent_while);
+}
 
 static void generate_node(node_t *node) {
     switch (node->type) {
@@ -418,10 +462,10 @@ static void generate_node(node_t *node) {
         generate_if_statement(node);
         break;
     case WHILE_STATEMENT:
-        // TODO: Implement
+        generate_while_statement(node);
         break;
     case NULL_STATEMENT:
-        // TODO: Implement
+        generate_null_statement();
         break;
     default:
         for (size_t i = 0; i < node->n_children; i++)
@@ -432,8 +476,6 @@ static void generate_node(node_t *node) {
 
 void generate_function(symbol_t *function) {
     current_function = function;
-    if_statement_counter = 0;
-    while_statement_counter = 0;
 
     printf("_%s:\n", function->name);
     puts("\tpushq   %rbp");
